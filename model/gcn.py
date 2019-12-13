@@ -73,20 +73,25 @@ class GraphConvolution(Layer):
 
 
 class GCN(Model):
-    def __init__(self, num_features: int, num_nonzero_features: int, dropout=0., *args, **kwargs):
+    """
+    A basic 2 layer Graph Convolutional Network model.
+    """
+    def __init__(self, num_features: int, num_nonzero_features: int, h1: int, h2: int, dropout=0., *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.num_features = num_features
         self.num_nonzero_features = num_nonzero_features
         self.dropout = dropout
         self.hidden1 = None
         self.hidden2 = None
+        self.h1 = h1
+        self.h2 = h2
 
     def build(self, input_shape):
         self.hidden1 = GraphConvolution(
-            input_dim=self.num_features, output_dim=11111, num_nonzero_features=self.num_nonzero_features,
+            input_dim=self.num_features, output_dim=self.h1, num_nonzero_features=self.num_nonzero_features,
             dropout=self.dropout, is_sparse=True, activation=tf.nn.relu)
 
-        self.hidden2 = GraphConvolution(input_dim=11111, output_dim=22222, dropout=self.dropout,
+        self.hidden2 = GraphConvolution(input_dim=self.h1, output_dim=self.h2, dropout=self.dropout,
                                         is_sparse=False, activation=tf.keras.activations.linear)
 
     def call(self, inputs: list, training=None, mask=None):

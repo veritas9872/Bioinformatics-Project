@@ -33,11 +33,13 @@ def process_graph(adj):
     return sparse_to_info(adj_norm)
 
 
-def split_graph_edges(sparse_matrix, val_ratio=0.02, test_ratio=0.02):
+def split_graph_edges(sparse_matrix, val_ratio=0.02, test_ratio=0.02, seed=None):
     """
     Function for building train/validation/test split in graph.
     Also removes diagonal elements. No seeding available.
     """
+    np.random.seed(seed)  # For reproducibility of data split, etc.
+
     sparse_matrix -= sp.diags(sparse_matrix.diagonal())
     sparse_matrix.eliminate_zeros()
 
