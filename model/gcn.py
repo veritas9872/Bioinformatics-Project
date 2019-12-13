@@ -94,5 +94,6 @@ class GCN(Model):
         _, adjacency_matrix = inputs
         outputs = self.hidden1(inputs, training=training)
         outputs = self.hidden2([outputs, adjacency_matrix], training=training)
+        return tf.matmul(tf.transpose(outputs), outputs)
 
 
