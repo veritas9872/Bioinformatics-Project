@@ -1,13 +1,8 @@
-from pathlib import Path
-from time import time
-
 import numpy as np
-from tqdm.autonotebook import tqdm
 import scipy.sparse as sp
 from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score
 import networkx as nx
 from absl import flags
-import tensorflow as tf
 
 FLAGS = flags.FLAGS
 
@@ -28,12 +23,14 @@ def sparse_to_info(sparse_matrix):
 
 
 def process_graph(adj):
-    adj = sp.coo_matrix(adj)
-    adj_ = adj + sp.eye(adj.shape[0])  # Add the identity matrix for inclusion of self features.
+    adj = sp.coo_matrix(adj, shape=adj.shape, dtype=np.float32)
+    adj_ = adj + sp.identity(adj.shape[0], dtype=np.float32)  # Add the identity matrix for inclusion of self features.
     row_sum = np.array(adj_.sum(axis=1))
     # deg is the D\hat^(-1/2) matrix in the paper, the diagonal matrix of the identity augmented adjacency matrix.
     deg = sp.diags((row_sum ** -0.5).ravel())
-    adj_norm = sp.coo_matrix(adj_.dot(deg).transpose().dot(deg))
+    # Normalized adjacency matrix.
+    adj_norm = sp.coo_matrix(adj_.dot(deg).transpose().dot(deg), shape=adj.shape, dtype=np.float32)
+    adj_norm.eliminate_zeros()
     return sparse_to_info(adj_norm)
 
 
@@ -46,7 +43,7 @@ def split_graph_edges(sparse_matrix, val_ratio=0.02, test_ratio=0.02, seed=None)
     np.random.seed(seed)  # For reproducibility of data split, etc.
 
     # Removing diagonal elements.
-    sparse_matrix -= sp.diags(sparse_matrix.diagonal(), shape=sparse_matrix.shape)
+    sparse_matrix -= sp.diags(sparse_matrix.diagonal(), shape=sparse_matrix.shape, dtype=np.float32)
     sparse_matrix.eliminate_zeros()
 
     upper_triangular = sp.triu(sparse_matrix)
@@ -66,29 +63,27 @@ def split_graph_edges(sparse_matrix, val_ratio=0.02, test_ratio=0.02, seed=None)
 
     num_nodes = upper_triangular.shape[0]
     edge_coordinates = set(tuple(coord) for coord in edge_coords)
-    fake_test_edges = edge_coordinates.copy()
-    while len(fake_test_edges) < num_edges + num_test_edges:
-        # Sorting forces the indices to be upper triangular. No replacement forces the indices to be non-diagonal.
-        indices = tuple(np.sort(np.random.choice(num_nodes, size=2, replace=False), axis=-1))
-        fake_test_edges.add(indices)
-    fake_test_edges = np.array(list(fake_test_edges))
 
-    fake_val_edges = edge_coordinates.copy()
-    while len(fake_val_edges) < num_edges + num_val_edges:
-        indices = tuple(np.sort(np.random.choice(num_nodes, size=2, replace=False), axis=-1))
-        # Different from SNAP code but similar in effect.
-        fake_val_edges.add(indices)
-    fake_val_edges = np.array(list(fake_val_edges))
+    def make_fake_edges(num_fake_edges):
+        fake_edges = edge_coordinates.copy()
+        while len(fake_edges) < num_edges + num_fake_edges:
+            # Sorting forces the indices to be upper triangular. No replacement forces the indices to be non-diagonal.
+            indices = tuple(np.sort(np.random.choice(num_nodes, size=2, replace=False), axis=-1))
+            fake_edges.add(indices)  # Efficiently adds only unique indices.
+        return np.array(list(fake_edges - edge_coordinates))  # Remove original coordinates.
+
+    fake_test_edges = make_fake_edges(num_test_edges)
+    fake_val_edges = make_fake_edges(num_val_edges)
 
     # Rebuild the adjacency matrix.
-    data = np.ones(shape=num_train_edges)  # Connections are marked by 1.
+    data = np.ones(shape=num_train_edges, dtype=np.float32)  # Connections are marked by 1.
     # Build a sparse matrix where the locations given by the indices in train_edges
     # are given values of 1 to mark connections.
     # Coordinates in train_edges must be given as separate vectors, hence the horizontal split.
-    print(train_edges.shape, np.max(train_edges))
-    train_matrix = sp.csr_matrix((data, (train_edges[:, 0], train_edges[:, 1])), shape=sparse_matrix.shape)
+    train_matrix = sp.csr_matrix((data, (train_edges[:, 0], train_edges[:, 1])),
+                                 shape=sparse_matrix.shape, dtype=np.float32)
     # Symmetric matrix should be the same on the transpose.
-    train_matrix += train_matrix.transpose().astype(dtype=np.float32)
+    train_matrix += train_matrix.transpose()
 
     # Returning the edge coordinates to symmetric form.
     train_edges = np.concatenate([train_edges, np.fliplr(train_edges)], axis=0).astype(dtype=np.float32)

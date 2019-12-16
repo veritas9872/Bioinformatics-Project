@@ -41,12 +41,13 @@ class GraphConvolution(Layer):
         super().build(input_shape)
 
     # @tf.function
-    def call(self, inputs: list, training: bool = None):
+    def call(self, inputs: list, training: bool = None) -> tf.Tensor:
         assert len(inputs) == 2, 'Input must be a list of length 2 with the adjacency matrix as the second element.'
         tensor, adjacency_matrix = inputs
 
         input_is_sparse = isinstance(tensor, tf.sparse.SparseTensor)
-        if self.is_sparse ^ input_is_sparse:  # ^ indicates xor in Python.
+
+        if self.is_sparse != input_is_sparse:
             raise RuntimeError('Input tensor does not match sparsity description!')
 
         if training:
@@ -56,8 +57,11 @@ class GraphConvolution(Layer):
                 tensor = tf.nn.dropout(tensor, rate=self.dropout)
 
         # Sparse matrix multiplication can be specified in matmul.
-        tensor = tf.matmul(a=tensor, b=self.w, a_is_sparse=self.is_sparse)
-        tensor = tf.matmul(a=adjacency_matrix, b=tensor, a_is_sparse=True)
+        if self.is_sparse:
+            tensor = tf.sparse.sparse_dense_matmul(sp_a=tensor, b=self.w)
+        else:
+            tensor = tf.matmul(a=tensor, b=self.w)
+        tensor = tf.sparse.sparse_dense_matmul(sp_a=adjacency_matrix, b=tensor)
         return self.activation(tensor)
 
     def get_config(self) -> dict:
@@ -93,7 +97,7 @@ class GCN(Model):
                                         is_sparse=False, activation=tf.keras.activations.linear)
 
     # @tf.function
-    def call(self, inputs: list, training=None, mask=None):
+    def call(self, inputs: list, training: bool = None, mask=None) -> tf.Tensor:
         assert len(inputs) == 2, 'Input must be a list of length 2 with the adjacency matrix as the second element.'
         _, adjacency_matrix = inputs
         outputs = self.hidden1(inputs, training=training)
