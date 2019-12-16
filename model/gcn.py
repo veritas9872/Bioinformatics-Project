@@ -40,6 +40,7 @@ class GraphConvolution(Layer):
 
         super().build(input_shape)
 
+    # @tf.function
     def call(self, inputs: list, training: bool = None):
         assert len(inputs) == 2, 'Input must be a list of length 2 with the adjacency matrix as the second element.'
         tensor, adjacency_matrix = inputs
@@ -54,12 +55,9 @@ class GraphConvolution(Layer):
             else:
                 tensor = tf.nn.dropout(tensor, rate=self.dropout)
 
-        if self.is_sparse:
-            tensor = tf.sparse.sparse_dense_matmul(sp_a=tensor, b=self.w)
-        else:
-            tensor = tf.matmul(a=tensor, b=self.w)
-
-        tensor = tf.sparse.sparse_dense_matmul(sp_a=adjacency_matrix, b=tensor)
+        # Sparse matrix multiplication can be specified in matmul.
+        tensor = tf.matmul(a=tensor, b=self.w, a_is_sparse=self.is_sparse)
+        tensor = tf.matmul(a=adjacency_matrix, b=tensor, a_is_sparse=True)
         return self.activation(tensor)
 
     def get_config(self) -> dict:
@@ -94,11 +92,11 @@ class GCN(Model):
         self.hidden2 = GraphConvolution(input_dim=self.h1, output_dim=self.h2, dropout=self.dropout,
                                         is_sparse=False, activation=tf.keras.activations.linear)
 
+    # @tf.function
     def call(self, inputs: list, training=None, mask=None):
         assert len(inputs) == 2, 'Input must be a list of length 2 with the adjacency matrix as the second element.'
         _, adjacency_matrix = inputs
         outputs = self.hidden1(inputs, training=training)
         outputs = self.hidden2([outputs, adjacency_matrix], training=training)
         return tf.matmul(tf.transpose(outputs), outputs)
-
 
