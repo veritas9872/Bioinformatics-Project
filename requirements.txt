@@ -1,1 +1,7 @@
+tqdm
+networkx
+scikit-learn
+scipy
+numpy
+absl
 tensorflow-gpu
