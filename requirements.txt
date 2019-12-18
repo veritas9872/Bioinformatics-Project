@@ -3,5 +3,5 @@ networkx
 scikit-learn
 scipy
 numpy
-absl
+absl-py
 tensorflow-gpu
