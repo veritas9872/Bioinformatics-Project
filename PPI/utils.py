@@ -8,27 +8,55 @@ from absl import flags
 FLAGS = flags.FLAGS
 
 
-def load_edgelist_data(file_path: str):
+def load_edgelist_data(file_path: str) -> sp.spmatrix:
+    """
+    Function for loading edgelist data as a scipy sparse matrix in the CSR (Compressed Sparse Row) format.
+    Args:
+        file_path: Location of the file.
+
+    Returns:
+        A sparse matrix containing the adjacency matrix of the data in the graph.
+    """
     graph = nx.read_edgelist(file_path)
     return nx.adjacency_matrix(graph)
 
 
 def sparse_to_info(sparse_matrix: sp.spmatrix):
+    """
+    Function for converting a scipy sparse matrix into the information necessary for converting into a sparse tensor.
+    Args:
+        sparse_matrix: The input sparse matrix to be decomposed into its component parts.
+
+    Returns:
+        edges: The coordinates of the edges in the sparse matrix. Edge coordinates are stored as a long column of pairs.
+            An array with shape of (N, 2), where N is the number of nodes.
+        data: The data values corresponding to each edge coordinate. An array with shape (N,).
+        shape: The dense shape of the sparse array.
+
+    """
     if not sp.isspmatrix_coo(sparse_matrix):
         sparse_matrix = sp.coo_matrix(sparse_matrix, shape=sparse_matrix.shape)  # Transform into COO format.
-    # Edge coordinates are stored as a long column of pairs. Shape of (N, 2).
     edges = np.vstack([sparse_matrix.row, sparse_matrix.col]).transpose()
     data = sparse_matrix.data
     shape = sparse_matrix.shape
     return edges, data, shape
 
 
-def to_sparse_tensor(sparse_matrix):
+def to_sparse_tensor(sparse_matrix: sp.spmatrix):
     edges, data, shape = sparse_to_info(sparse_matrix)
     return tf.SparseTensor(indices=edges, values=data, dense_shape=shape)
 
 
 def to_normalized_sparse_tensor(sparse_matrix: sp.spmatrix):
+    """
+
+    Args:
+        sparse_matrix: Sparse matrix to be normalized and converted into a tensor.
+
+    Returns:
+        Sparse tensor normalized according to the rules specified in the original GCN paper.
+        See https://openreview.net/pdf?id=SJU4ayYgl for further information.
+    """
     sparse_matrix = sp.coo_matrix(sparse_matrix, shape=sparse_matrix.shape, dtype=np.float32)
     # Add the identity matrix for inclusion of self features.
     sparse_matrix += sp.identity(sparse_matrix.shape[0], dtype=np.float32)  # Data type conversion is important.
@@ -41,13 +69,28 @@ def to_normalized_sparse_tensor(sparse_matrix: sp.spmatrix):
     return to_sparse_tensor(adj_norm)
 
 
-def split_graph_edges(sparse_matrix: sp.spmatrix, val_ratio=0.02, test_ratio=0.02, seed=None):
+def split_graph_edges(sparse_matrix: sp.spmatrix, val_ratio=0.02, test_ratio=0.02, seed: int = None):
     """
     Function for building train/validation/test split in graph.
-    Also removes diagonal elements. No seeding available.
-    Maintain symmetry in splitting.
+    Randomly splits edges into three groups, train, val, and test.
+    The ratios are set according to input ration values.
+    The seed for the split can be specified manually for reproducibility.
+    Also removes diagonal elements from the sparse matrix.
+    The input is assumed to be symmetric. This symmetry is maintained in the splitting process as well.
+
+    Args:
+        sparse_matrix: Input sparse matrix to be split.
+        val_ratio: Validation split ratio.
+        test_ratio: Test set split ratio.
+        seed: Seed for random splitting.
+
+    Returns:
+        The adjacency matrix for the training edges and the training edges.
+        The validation and test sets only return the edges but also include fake edges for verification by the model.
     """
     np.random.seed(seed)  # For reproducibility of data split, etc.
+
+    assert (0 <= val_ratio < 1) and (0 <= test_ratio < 1) and (0 <= val_ratio + test_ratio < 1)
 
     # Removing diagonal elements.
     sparse_matrix -= sp.diags(sparse_matrix.diagonal(), shape=sparse_matrix.shape)
@@ -107,7 +150,16 @@ def split_graph_edges(sparse_matrix: sp.spmatrix, val_ratio=0.02, test_ratio=0.0
 
 
 def get_roc_score(adjacency_recon: np.ndarray, real_edges, fake_edges):
+    """
+    Function for calculating ROC (Receiver Operating Characteristic) curve score between real and fake edges.
+    Args:
+        adjacency_recon: Reconstructed adjacency matrix.
+        real_edges: The indices for the labeled edges in the dataset. An array of shape (N,2).
+        fake_edges: The fake edge indices generated while splitting the dataset. An array of shape (N,2).
 
+    Returns:
+        The ROC and AP (Average precision) scores.
+    """
     real_preds = np.stack([adjacency_recon[edge[0], edge[1]] for edge in real_edges], axis=0)
     real_preds = (1 / (1 + np.exp(-real_preds)))  # Sigmoid. (1 / (1 + e^-x)).
 
