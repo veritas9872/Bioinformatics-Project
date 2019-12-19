@@ -3,8 +3,19 @@ from tensorflow.keras.layers import Layer
 from tensorflow.keras import activations, Model
 
 
-# This function causes errors when used in graph mode.
-def sparse_dropout(sparse_tensor: tf.sparse.SparseTensor, rate: float, num_features: int) -> tf.sparse.SparseTensor:
+def sparse_dropout(sparse_tensor: tf.sparse.SparseTensor, rate: float) -> tf.sparse.SparseTensor:
+    """
+    Implementation of dropout for sparse tensors.
+    After some deliberation, the number of non-zero features was allowed to be dynamic.
+    However, this means that this function cannot be used in graph mode.
+    To do so, the function must be changed so that number of non-zero features is specified beforehand.
+    Args:
+        sparse_tensor: A sparse tensor to be dropped out.
+        rate: The dropout rate.
+
+    Returns:
+        The dropped out sparse tensor.
+    """
     if rate == 0:
         return sparse_tensor
     assert 0 < rate < 1, 'Invalid range for dropout rate.'
@@ -18,8 +29,8 @@ class GraphConvolution(Layer):
     """
     Graph Convolution layer for both dense and sparse inputs.
     For use in undirected graphs without edge labels.
-    Only weights, no biases used.
     Dropout included inside the layer.
+    Due to the sparse dropout layer, using dropout only works in eager mode.
     """
     def __init__(self, input_dim: int, output_dim: int, bias=True,
                  dropout=0., is_sparse=False, activation=None, **kwargs):
@@ -55,7 +66,7 @@ class GraphConvolution(Layer):
         if training:
             if self.is_sparse:
                 # Not sure if num_features=input_dim is correct. However, our input data is always a square matrix.
-                tensor = sparse_dropout(tensor, rate=self.dropout, num_features=self.input_dim)
+                tensor = sparse_dropout(tensor, rate=self.dropout)
             else:
                 tensor = tf.nn.dropout(tensor, rate=self.dropout)
 
