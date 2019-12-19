@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import networkx as nx
 import scipy.sparse as sp
+from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score
 
 def load_data():
     """
@@ -41,68 +42,35 @@ def split_data(adj, val_ratio=0.02, test_ratio=0.02):
     all_edges = sparse_matrix_parsing(adj)[0]
     
     # define the number of edges of val / test
-    num_edges_all = edges.shape[0]
-    num_edges_val = int(num_edges_all * val_ratio)
-    num_edges_test = int(num_edges_all * test_ratio)
+    num_edges = edges.shape[0]
+    num_val_edges = int(num_edges * val_ratio)
+    num_test_edges = int(num_edges * test_ratio)
     
     # sample edges of train / val / test
-    edge_idx_shuffled = np.random.permutation(num_edges_all)
-    val_edges = edges[edge_idx_shuffled[:num_edges_val]]
-    test_edges = edges[edge_idx_shuffled[-num_edges_test:]]
-    train_edges = edges[edge_idx_shuffled[num_edges_val:-num_edges_test]]
-    
-    train_edges_l = train_edges.tolist()
-    val_edges_l = val_edges.tolist()
-    test_edges_l = test_edges.tolist()
-    all_edges_l = all_edges.tolist()
+    edge_idx_shuffled = np.random.permutation(num_edges)
+    val_edges = edges[edge_idx_shuffled[:num_val_edges]]
+    test_edges = edges[edge_idx_shuffled[-num_test_edges:]]
+    train_edges = edges[edge_idx_shuffled[num_val_edges:-num_test_edges]]
     
     print("Data split Success!!")
-    
-    # val_edges_false
-    val_edges_false = []
-    while len(val_edges_false) < num_edges_val:
-        rnd_num = num_edges_val - len(val_edges_false)
-        print("remain # of edges : ", rnd_num)             
-        rnd = np.random.randint(0, num_nodes, size = 2*rnd_num)
-        indices = np.sort(np.stack((rnd[:rnd_num], rnd[rnd_num:]), axis=-1))
-        indices_l = indices.tolist()
-        
-        for idx in indices_l:
-            if idx[0] == idx[1]:
-                continue
-            if (idx in train_edges_l) or (idx[::-1] in train_edges_l):
-                continue               
-            if (idx in val_edges_l) or (idx[::-1] in val_edges_l):
-                continue  
-            if (idx in val_edges_false) or (idx[::-1] in val_edges_false):
-                continue             
-            val_edges_false.append(idx)
-                    
-    print("val_edge_false generated!!")
-    
 
-    # test_edges_false
-    test_edges_false = []
-    while len(test_edges_false) < num_edges_test:
-        rnd_num = num_edges_test - len(test_edges_false)
-        print("remain # of edges : ", rnd_num)      
-        rnd = np.random.randint(0, num_nodes, size = 2*rnd_num)
-        indices = np.sort(np.stack((rnd[:rnd_num], rnd[rnd_num:]), axis=-1))
-        indices_l = indices.tolist()
-        
-        for idx in indices_l:
-            if idx[0] == idx[1]:
-                continue
-            if (idx in test_edges_l) or (idx[::-1] in test_edges_l):
-                continue               
-            if (idx in all_edges_l):
-                continue  
-            if (idx in test_edges_false) or (idx[::-1] in test_edges_false):
-                continue             
-            test_edges_false.append(idx)
-            
-    print("test_edge_false generated!!")                
+    # Generate fake edges for testing later.
+    edge_coordinates = set(tuple(coord) for coord in edges)
+    fake_test_edges = edge_coordinates.copy()  # Use sets for fast removal of duplicates.
+    while len(fake_test_edges) < (num_edges + num_test_edges):
+        # Indices are always upper triangular when sorted. Not allowing replacement removes diagonal elements.
+        indices = tuple(np.sort(np.random.choice(num_nodes, size=2, replace=False), axis=-1))
+        fake_test_edges.add(indices)  # Numpy arrays cannot be hashed, hence the need to convert to tuples.
 
+    # Generate fake edges for validation for later.
+    fake_val_edges = fake_test_edges.copy()  # Deep copy necessary to prevent adding to original set.
+    while len(fake_val_edges) < (num_edges + num_test_edges + num_val_edges):
+        indices = tuple(np.sort(np.random.choice(num_nodes, size=2, replace=False), axis=-1))
+        fake_val_edges.add(indices)
+
+    # Turn the set into an array of shape (n,2), removing the unnecessary elements from each set.
+    fake_val_edges = np.array(list(fake_val_edges - fake_test_edges))
+    fake_test_edges = np.array(list(fake_test_edges - edge_coordinates))          
             
     # rebuild adj matrix
     rows = train_edges[:,0]
@@ -111,7 +79,7 @@ def split_data(adj, val_ratio=0.02, test_ratio=0.02):
     train_matrix = sp.csr_matrix((values,(rows,cols)), shape=adj.shape)
     train_matrix += train_matrix.T
                                  
-    return train_matrix, train_edges, val_edges, val_edges_false, test_edges, test_edges_false, adj
+    return train_matrix, train_edges, val_edges, fake_val_edges, test_edges, fake_test_edges, adj
 
 def normalize_graph(adj):
     adj = sp.coo_matrix(adj)
@@ -121,3 +89,19 @@ def normalize_graph(adj):
     adj_norm = sp.coo_matrix(adj_.dot(inv_sqrt_deg).transpose().dot(inv_sqrt_deg))
     
     return sparse2tensor(adj_norm)
+
+def get_roc_score(adjacency_recon: np.ndarray, real_edges, fake_edges):
+
+    real_preds = np.stack([adjacency_recon[edge[0], edge[1]] for edge in real_edges], axis=0)
+    real_preds = (1 / (1 + np.exp(-real_preds)))  # Sigmoid. (1 / (1 + e^-x)).
+
+    fake_preds = np.stack([adjacency_recon[edge[0], edge[1]] for edge in fake_edges], axis=0)
+    fake_preds = (1 / (1 + np.exp(-fake_preds)))  # Sigmoid. (1 / (1 + e^-x)).
+
+    all_preds = np.concatenate([real_preds, fake_preds], axis=0)
+    all_labels = np.concatenate([np.ones(len(real_preds)), np.zeros(len(fake_preds))], axis=0)
+
+    roc_score = roc_auc_score(y_true=all_labels, y_score=all_preds)
+    ap_score = average_precision_score(y_true=all_labels, y_score=all_preds)
+
+    return roc_score, ap_score

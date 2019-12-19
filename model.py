@@ -3,7 +3,7 @@ from tensorflow.keras.layers import Layer, InputLayer
 from tensorflow.keras import Model, activations
 
 def dropout_sparse(x, prob, num_nonzero):
-    random_tensor = tf.random.uniform(shape=[num_nonzero]) + prob
+    random_tensor = tf.random.uniform(shape=[num_nonzero]) + 1.-prob
     dropout_mask = tf.cast(tf.floor(random_tensor), dtype=tf.bool)
     out = tf.sparse.retain(x, dropout_mask)
     
@@ -22,10 +22,11 @@ class GraphConvolution(Layer):
                                  shape=(self.input_dim, self.output_dim),
                                  initializer='glorot_uniform',
                                  trainable=True)
-    def call(self, inputs):
+    def call(self, inputs, training = None):
         tensor, adj = inputs
         x = tensor
-        x = tf.nn.dropout(x, 1-self.dropout)
+        if training:
+            x = tf.nn.dropout(x, self.dropout)
         x = tf.matmul(x, self.w)
         x = tf.sparse.sparse_dense_matmul(adj, x)
         
@@ -45,10 +46,11 @@ class GraphConvolutionSparse(Layer):
                                  shape=(self.input_dim, self.output_dim),
                                  initializer='glorot_uniform',
                                  trainable=True)
-    def call(self, inputs):
+    def call(self, inputs, training = None):
         tensor, adj = inputs
         x = tensor
-        x = dropout_sparse(x, 1-self.dropout, self.num_nonzeros)
+        if training:
+            x = dropout_sparse(x, self.dropout, self.num_nonzeros)
         x = tf.sparse.sparse_dense_matmul(x, self.w)
         x = tf.sparse.sparse_dense_matmul(adj, x)
         return self.activation(x)
@@ -62,7 +64,6 @@ class InnerProductDecoder(Layer):
         x = tf.nn.dropout(inputs, self.dropout)
         x_tp = tf.transpose(x)
         x = tf.matmul(x, x_tp)
-        #x = tf.reshape(x, [-1])
         
         return x        
 
@@ -84,10 +85,10 @@ class GCN(Model):
                                         dropout=self.dropout)
         self.recon = InnerProductDecoder(dropout=self.dropout)
         
-    def call(self, inputs):
+    def call(self, inputs, training = None):
         _ , adj= inputs            
-        x = self.hidden1(inputs)
-        x = self.hidden2([x, adj])     
+        x = self.hidden1(inputs, training=training)
+        x = self.hidden2([x, adj], training=training)     
         x = self.recon(x)
         
         return tf.cast(x, tf.float64)
