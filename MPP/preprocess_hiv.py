@@ -32,7 +32,7 @@ if __name__ == '__main__':
     atom_features_padded = [np.pad(adj,((0,pn),(0,0)),'constant',constant_values=(0)) for (adj,pn) in zip(atom_features, pad_nums)]
 
     activity_labels = np.array(active, dtype=bool)
-    hiv_data_conv = {'atom_features': atom_features,
+    hiv_data_conv = {'atom_features': atom_features_padded,
                     'adjacency_matrices': adjacency_matrices_padded, 'activity_labels': activity_labels}
     
     print('Beginning featurization process. (ECFP)')
