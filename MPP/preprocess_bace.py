@@ -12,12 +12,12 @@ def adj_list_to_adj_matrix(adj_list: list, max_num: int):
     return matrix
 
 if __name__ == '__main__':
-    hiv_df = pd.read_csv('../data/HIV.csv')
-    smiles = hiv_df['smiles']
-    active = hiv_df['HIV_active']
-    
+    bace_df = pd.read_csv('../data/BACE.csv')
+    smiles = bace_df['mol']
+    active = bace_df['Class']
+
     print('Beginning transformation to molecules.')
-    featurizer = dc.feat.ConvMolFeaturizer()   
+    featurizer = dc.feat.ConvMolFeaturizer()
     molecules = [Chem.MolFromSmiles(mol) for mol in smiles]
 
     print('Beginning featurization process. (CONV)')
@@ -32,8 +32,8 @@ if __name__ == '__main__':
     atom_features_padded = [np.pad(adj,((0,pn),(0,0)),'constant',constant_values=(0)) for (adj,pn) in zip(atom_features, pad_nums)]
 
     activity_labels = np.array(active, dtype=bool)
-    hiv_data_conv = {'atom_features': atom_features_padded,
-                    'adjacency_matrices': adjacency_matrices_padded, 'activity_labels': activity_labels}
+    bace_data_conv = {'atom_features': atom_features_padded,
+                    'adjacency_matrices': adjacency_matrices, 'activity_labels': activity_labels}
     
     print('Beginning featurization process. (ECFP)')
     ecfp_degree = 2 # can be changed
@@ -41,13 +41,13 @@ if __name__ == '__main__':
     ecfp_features = [dc.feat.rdkit_grid_featurizer.compute_ecfp_features(mol, ecfp_degree, ecfp_power) for mol in molecules]
 
     activity_labels = np.array(active, dtype=bool)
-    hiv_data_ecfp = {'ecfp_features': ecfp_features, 'activity_labels': activity_labels}    
-
+    bace_data_ecfp = {'ecfp_features': ecfp_features, 'activity_labels': activity_labels}
+    
     print('Beginning saving!')
     # Saving data to pickle file for easier data loading later.
     # Also removes the need to perform data pre-processing, which is very time consuming, repeatedly.
-    with open('./hiv_data_conv.pickle', mode='xb') as file:
-        pickle.dump(obj=hiv_data_conv, file=file, protocol=pickle.HIGHEST_PROTOCOL)
-
-    with open('./hiv_data_ecfp.pickle', mode='xb') as file:
-        pickle.dump(obj=hiv_data_ecfp, file=file, protocol=pickle.HIGHEST_PROTOCOL)        
+    with open('./bace_data_conv.pickle', mode='xb') as file:
+        pickle.dump(obj=bace_data_conv, file=file, protocol=pickle.HIGHEST_PROTOCOL)
+        
+    with open('./bace_data_ecfp.pickle', mode='xb') as file:
+        pickle.dump(obj=bace_data_ecfp, file=file, protocol=pickle.HIGHEST_PROTOCOL)
