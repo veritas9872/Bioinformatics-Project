@@ -23,7 +23,7 @@ def make_feature(data_name, feature_name):
         data_path = '../data/HIV.csv'
         active_field = ["HIV_active"]
         smiles_field = "smiles"
-        shard_size = 
+
     elif(data_name == "BACE"):
         data_path = '../data/bace.csv'
         active_field = ["Class"]

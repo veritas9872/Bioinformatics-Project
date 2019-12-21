@@ -1,10 +1,12 @@
 import tensorflow as tf
 import numpy as np
 
+import deepchem as dc
 from deepchem.models.tensorgraph.layers import Feature
 from deepchem.models.tensorgraph.layers import Dense, GraphConv, BatchNorm
 from deepchem.models.tensorgraph.layers import GraphPool, GraphGather
-from deepchem.models.tensorgraph.layers import Dense, SoftMax, SoftMaxCrossEntropy, WeightedError, Stack
+from deepchem.models.tensorgraph.layers import Dense, SoftMax, SoftMaxCrossEntropy, WeightedError, ReduceMean, Stack
+from deepchem.models.tensorgraph.layers import Layer, Input, Reshape, Flatten, Gather
 from deepchem.models.tensorgraph.layers import Label, Weights
 from deepchem.metrics import to_one_hot
 from deepchem.feat.mol_graphs import ConvMol
@@ -57,9 +59,9 @@ class GCN:
         
         # Set loss function
         self.label = Label(shape=(None, 2))
-        loss = SoftMaxCrossEntropy(in_layers = [self.label, d2])
+        cost = SoftMaxCrossEntropy(in_layers = [self.label, d2])
         self.weight = Weights(shape=(None,1))
-        loss = WeightedError(in_layers=[loss, self.weight])
+        loss = WeightedError(in_layers=[cost, self.weight])
         self.tg.set_loss(loss)
         
     def fit(self, dataset, epochs):
@@ -83,5 +85,45 @@ class GCN:
                 for i in range(1, len(deg_adj_list)):
                     feed_dict[self.deg_adj_list[i - 1]] = deg_adj_list[i]
 
-                yield feed_dict   
+                yield feed_dict
+                
+class MLP:
+    def __init__(self, batch_size):
+        # save parameters
+        self.batch_size = batch_size
         
+        # define tensorgraph
+        self.tg = TensorGraph(use_queue=False)
+        self.feature = Feature(shape=(None, 1024))
+        
+        # build graph
+        self.build_graph()        
+        
+    def build_graph(self):
+        d1 = Dense(out_channels=256, activation_fn=tf.nn.relu, in_layers=[self.feature])
+        d2 = Dense(out_channels=64, activation_fn=tf.nn.relu, in_layers=[d1])
+        d3 = Dense(out_channels=16, activation=None, in_layers=[d2])
+        d4 = Dense(out_channels=2, activation=None, in_layers=[d3])
+        softmax = SoftMax(in_layers=[d4])
+        self.tg.add_output(softmax)    
+                   
+        self.label = Label(shape=(None, 2))                   
+        cost = SoftMaxCrossEntropy(in_layers = [self.label, d4])
+        loss = ReduceMean(in_layers=[cost])
+        self.tg.set_loss(loss)
+                   
+    def fit(self, dataset, epochs):     
+        self.tg.fit_generator(self.data_generator(dataset, self.batch_size, epochs=epochs))
+                   
+    def predict(self, dataset):
+        pred = self.tg.predict_on_generator(self.data_generator(dataset, self.batch_size, predict=True))
+        return np.expand_dims(pred, axis = 0)
+
+    def data_generator(self, dataset, batch_size, epochs=1, predict=False):
+        for e in range(epochs):
+            for X, y, w, idx in dataset.iterbatches(batch_size, pad_batches=True, deterministic=True):
+                feed_dict = {} # data for feed
+                feed_dict[self.label] = to_one_hot(y[:,0]) # convert label to onehot
+                feed_dict[self.feature] = X
+
+                yield feed_dict          
