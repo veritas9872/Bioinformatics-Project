@@ -116,10 +116,10 @@ class MLP:
         self.tg.fit_generator(self.data_generator(dataset, self.batch_size, epochs=epochs))
                    
     def predict(self, dataset):
-        pred = self.tg.predict_on_generator(self.data_generator(dataset, self.batch_size, predict=True))
+        pred = self.tg.predict_on_generator(self.data_generator(dataset, self.batch_size))
         return np.expand_dims(pred, axis = 0)
 
-    def data_generator(self, dataset, batch_size, epochs=1, predict=False):
+    def data_generator(self, dataset, batch_size, epochs=1):
         for e in range(epochs):
             for X, y, w, idx in dataset.iterbatches(batch_size, pad_batches=True, deterministic=True):
                 feed_dict = {} # data for feed
