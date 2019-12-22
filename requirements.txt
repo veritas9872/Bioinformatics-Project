@@ -1,3 +1,4 @@
+deepchem
 tqdm
 networkx
 scikit-learn
